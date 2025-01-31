@@ -19,6 +19,9 @@ public class Batcher
     public Batcher(GraphicsDevice graphicsDevice)
     {
         _graphics = graphicsDevice;
+
+        //tmp
+        _verticies = new VertexPositionColorTextureIndex[4];
     }
 
     private GraphicsDevice _graphics;
@@ -32,10 +35,10 @@ public class Batcher
     public BatcherSprite Draw(Texture2D texture, Vector2 position)
     {
         return new BatcherSprite(
-            default, 
-            texture.Width, 
-            texture.Height, 
-            _verticies.AsSpan(_nextIndex, VerticiesPerQuad)
+            default,
+            texture.Width,
+            texture.Height,
+            MemoryMarshal.CreateSpan(ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_verticies), _nextIndex), VerticiesPerQuad)
             );
     }
 
