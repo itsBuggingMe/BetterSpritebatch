@@ -22,12 +22,12 @@ public class Batcher
     {
         _graphics = graphicsDevice;
 
-        _verticies = new VertexPositionColorTextureIndex[initalSpriteCapacity * VerticiesPerQuad];
+        _verticies = new VertexPositionColorTexture2D[initalSpriteCapacity * VerticiesPerQuad];
         _indicies = new ushort[initalSpriteCapacity * IndiciesPerQuad];
     }
 
     private GraphicsDevice _graphics;
-    private VertexPositionColorTextureIndex[] _verticies;
+    private VertexPositionColorTexture2D[] _verticies;
     private ushort[] _indicies;
     private int _nextIndex;
 
@@ -69,13 +69,13 @@ public class Batcher
     
     public ref struct BatcherSprite
     {
-        private ref VertexPositionColorTextureIndex _start;
+        private ref VertexPositionColorTexture2D _start;
 
         private STVector _origin;
         private float _textureWidth;
         private float _textureHeight;
 
-        internal BatcherSprite(Vector2 origin, int tWidth, int tHeight, Span<VertexPositionColorTextureIndex> verticies)
+        internal BatcherSprite(Vector2 origin, int tWidth, int tHeight, Span<VertexPositionColorTexture2D> verticies)
         {
             Debug.Assert(verticies.Length == 4);
             _textureWidth = tWidth;
@@ -89,10 +89,10 @@ public class Batcher
         private ref STVector BL => ref Unsafe.As<Vector2, STVector>(ref Unsafe.Add(ref _start, 2).Position);
         private ref STVector BR => ref Unsafe.As<Vector2, STVector>(ref Unsafe.Add(ref _start, 3).Position);
 
-        private ref VertexPositionColorTextureIndex VTL => ref _start;
-        private ref VertexPositionColorTextureIndex VTR => ref Unsafe.Add(ref _start, 1);
-        private ref VertexPositionColorTextureIndex VBL => ref Unsafe.Add(ref _start, 2);
-        private ref VertexPositionColorTextureIndex VBR => ref Unsafe.Add(ref _start, 3);
+        private ref VertexPositionColorTexture2D VTL => ref _start;
+        private ref VertexPositionColorTexture2D VTR => ref Unsafe.Add(ref _start, 1);
+        private ref VertexPositionColorTexture2D VBL => ref Unsafe.Add(ref _start, 2);
+        private ref VertexPositionColorTexture2D VBR => ref Unsafe.Add(ref _start, 3);
 
         public BatcherSprite Rotate(float radians)
         {
@@ -157,7 +157,7 @@ public class Batcher
             return this;
         }
 
-        public BatcherSprite FlipHorzontally()
+        public BatcherSprite FlipHorizontally()
         {
             ref var a = ref VTL.TextureCoordinate.X;
             ref var b = ref VBR.TextureCoordinate.X;
@@ -168,7 +168,7 @@ public class Batcher
         public BatcherSprite ApplyEffect(SpriteEffects effects)
         {
             if ((effects & SpriteEffects.FlipHorizontally) != 0)
-                FlipHorzontally();
+                FlipHorizontally();
             if ((effects & SpriteEffects.FlipVertically) != 0)
                 FlipVertically();
             return this;
