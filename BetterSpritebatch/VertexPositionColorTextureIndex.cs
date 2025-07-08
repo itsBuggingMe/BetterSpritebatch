@@ -12,7 +12,6 @@ public struct VertexPositionColorTextureIndex : IVertexType
     public Vector2 Position;
     //8
     public Vector2 TextureCoordinate;
-
     //4
     public Color Color;
     //2

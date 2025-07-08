@@ -5,7 +5,7 @@ VisualStudioVersion = 17.11.35222.181
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterSpritebatch", "BetterSpritebatch\BetterSpritebatch.csproj", "{FE85F701-4107-4256-9ED0-C12A3F2034CD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterSpritebatch.Benchmarks", "BetterSpritebatch.Benchmarks\BetterSpritebatch.Benchmarks.csproj", "{80D668AF-8C09-42C6-9E7B-05D756EA9194}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterSpritebatchTester", "BetterSpritebatchTester\BetterSpritebatchTester.csproj", "{90794E43-3F71-47E2-987F-4A4F7D3E2909}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -17,10 +17,10 @@ Global
 		{FE85F701-4107-4256-9ED0-C12A3F2034CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FE85F701-4107-4256-9ED0-C12A3F2034CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FE85F701-4107-4256-9ED0-C12A3F2034CD}.Release|Any CPU.Build.0 = Release|Any CPU
-		{80D668AF-8C09-42C6-9E7B-05D756EA9194}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{80D668AF-8C09-42C6-9E7B-05D756EA9194}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{80D668AF-8C09-42C6-9E7B-05D756EA9194}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{80D668AF-8C09-42C6-9E7B-05D756EA9194}.Release|Any CPU.Build.0 = Release|Any CPU
+		{90794E43-3F71-47E2-987F-4A4F7D3E2909}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{90794E43-3F71-47E2-987F-4A4F7D3E2909}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{90794E43-3F71-47E2-987F-4A4F7D3E2909}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{90794E43-3F71-47E2-987F-4A4F7D3E2909}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -13,52 +13,60 @@ namespace BetterSpritebatch;
 
 public class Batcher
 {
+    internal const int DefaultInitialSpriteCapacity = 42;
     internal const int VerticiesPerQuad = 4;
     internal const int IndiciesPerQuad = 6;
+    internal const int MaxQuadsPerBatch = 65532;
 
-    public Batcher(GraphicsDevice graphicsDevice)
+    public Batcher(GraphicsDevice graphicsDevice, int initalSpriteCapacity = DefaultInitialSpriteCapacity)
     {
         _graphics = graphicsDevice;
 
-        //tmp
-        _verticies = new VertexPositionColorTextureIndex[4];
+        _verticies = new VertexPositionColorTextureIndex[initalSpriteCapacity * VerticiesPerQuad];
+        _indicies = new ushort[initalSpriteCapacity * IndiciesPerQuad];
     }
 
     private GraphicsDevice _graphics;
     private VertexPositionColorTextureIndex[] _verticies;
     private ushort[] _indicies;
-    private DynamicVertexBuffer _vertexBuffer;
-    private DynamicIndexBuffer _indexBuffer;
     private int _nextIndex;
-
 
     public BatcherSprite Draw(Texture2D texture, Vector2 position)
     {
-        return new BatcherSprite(
-            default,
-            texture.Width,
-            texture.Height,
-            MemoryMarshal.CreateSpan(ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_verticies), _nextIndex), VerticiesPerQuad)
+        return new BatcherSprite(   
+                default,
+                texture.Width,
+                texture.Height,
+                MemoryMarshal.CreateSpan(ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_verticies), _nextIndex), VerticiesPerQuad)
             );
     }
 
     public BatcherSprite Draw(Texture2D texture, Rectangle destination)
     {
-        
-        
         return new BatcherSprite(
-            default,
-            texture.Width,
-            texture.Height,
-            _verticies.AsSpan(_nextIndex, VerticiesPerQuad)
+                default,
+                texture.Width,
+                texture.Height,
+                _verticies.AsSpan(_nextIndex, VerticiesPerQuad)
             );
     }
 
-    public void End()
+    public void Submit(BlendState? blendState = null, SamplerState? samplerState = null, DepthStencilState? depthStencilState = null, RasterizerState? rasterizerState = null)
     {
+        _graphics.BlendState = blendState ?? BlendState.AlphaBlend;
+        _graphics.VertexSamplerStates[0] = samplerState ?? SamplerState.LinearClamp;
+        _graphics.DepthStencilState = depthStencilState ?? DepthStencilState.Default;
+        _graphics.RasterizerState = rasterizerState ?? RasterizerState.CullCounterClockwise;
+        
+        
 
+        int chunkEnd = Math.Min(MaxQuadsPerBatch, _nextIndex);
+        for (int chunkStart = 0; chunkEnd < _nextIndex; chunkStart += MaxQuadsPerBatch, chunkEnd = Math.Min(MaxQuadsPerBatch, _nextIndex))
+        {
+            _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, chunkStart, 0, 10);
+        }
     }
-
+    
     public ref struct BatcherSprite
     {
         private ref VertexPositionColorTextureIndex _start;
@@ -131,7 +139,7 @@ public class Batcher
 
             return this;
         }
-        
+
         public BatcherSprite Transform(Matrix matrix)
         {
             TL = STVector.Transform(TL, Unsafe.BitCast<Matrix, STMatrix>(matrix));
@@ -145,7 +153,7 @@ public class Batcher
         {
             ref var a = ref VTL.TextureCoordinate.Y;
             ref var b = ref VBR.TextureCoordinate.Y;
-            (a, b)  = (b, a);
+            (a, b) = (b, a);
             return this;
         }
 
@@ -153,27 +161,27 @@ public class Batcher
         {
             ref var a = ref VTL.TextureCoordinate.X;
             ref var b = ref VBR.TextureCoordinate.X;
-            (a, b)  = (b, a);
+            (a, b) = (b, a);
             return this;
         }
 
         public BatcherSprite ApplyEffect(SpriteEffects effects)
         {
-            if((effects & SpriteEffects.FlipHorizontally) != 0)
+            if ((effects & SpriteEffects.FlipHorizontally) != 0)
                 FlipHorzontally();
-            if((effects & SpriteEffects.FlipVertically) != 0)
+            if ((effects & SpriteEffects.FlipVertically) != 0)
                 FlipVertically();
             return this;
         }
 
         public BatcherSprite Scale(Vector2 multipler)
         {
-            if(Vector256.IsHardwareAccelerated)
+            if (Vector256.IsHardwareAccelerated)
             {
                 //todo: check if jit opts this
                 Vector256<float> pos = Vector256.Create(TL.X, TL.Y, TR.X, TR.Y, BL.X, BL.Y, BR.X, BR.Y);
                 Vector256<float> origin = Vector256.Create(Unsafe.BitCast<STVector, long>(_origin)).AsSingle();
-                
+
                 pos -= origin;
                 pos *= Vector256.Create(Unsafe.BitCast<Vector2, long>(multipler)).AsSingle();
                 pos += origin;
@@ -188,7 +196,7 @@ public class Batcher
                 Vector128<float> lower = Vector128.Create(TL.X, TL.Y, TR.X, TR.Y);
                 Vector128<float> upper = Vector128.Create(BL.X, BL.Y, BR.X, BR.Y);
                 Vector128<float> origin = Vector128.Create(Unsafe.BitCast<STVector, long>(_origin)).AsSingle();
-                
+
                 lower -= origin;
                 upper -= origin;
 
@@ -210,12 +218,12 @@ public class Batcher
 
         public BatcherSprite Scale(float multipler)
         {
-            if(Vector256.IsHardwareAccelerated)
+            if (Vector256.IsHardwareAccelerated)
             {
                 //todo: check if jit opts this
                 Vector256<float> pos = Vector256.Create(TL.X, TL.Y, TR.X, TR.Y, BL.X, BL.Y, BR.X, BR.Y);
                 Vector256<float> origin = Vector256.Create(Unsafe.BitCast<STVector, long>(_origin)).AsSingle();
-                
+
                 pos -= origin;
                 pos *= Vector256.Create(multipler);
                 pos += origin;
@@ -232,21 +240,21 @@ public class Batcher
                 Vector128<float> origin = Vector128.Create(Unsafe.BitCast<STVector, long>(_origin)).AsSingle();
                 lower += origin;
                 upper += origin;
-                
+
                 Vector128<float> mul = Vector128.Create(multipler);
                 lower *= mul;
                 upper *= mul;
 
                 lower -= origin;
                 upper -= origin;
-                
+
                 TL = Unsafe.BitCast<Vector64<float>, STVector>(lower.GetLower());
                 TR = Unsafe.BitCast<Vector64<float>, STVector>(lower.GetUpper());
                 BL = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetLower());
                 TR = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetUpper());
             }
 
-            return this;        
+            return this;
         }
 
         public BatcherSprite Tint(Color color)
