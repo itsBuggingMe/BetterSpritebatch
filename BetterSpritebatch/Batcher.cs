@@ -7,48 +7,108 @@ using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using STVector = System.Numerics.Vector2;
 using STMatrix = System.Numerics.Matrix4x4;
+using Microsoft.Xna.Framework.Content;
 
 
 namespace BetterSpritebatch;
 
 public class Batcher
 {
+    internal struct HandleLookup(Rectangle bounds, Vector2 tL, Vector2 tR, Vector2 bL, Vector2 bR)
+    {
+        public Rectangle Bounds = bounds;
+        public Vector2 TL = tL;
+        public Vector2 TR = tR;
+        public Vector2 BL = bL;
+        public Vector2 BR = bR;
+        // All textures supported have width, so TR.X must be non zero for it to not be default.
+        public bool IsDefault => TR.X == default;
+    }
+
     internal const int DefaultInitialSpriteCapacity = 42;
+    internal const int DefaultAtlasSize = 512;
     internal const int VerticiesPerQuad = 4;
     internal const int IndiciesPerQuad = 6;
     internal const int MaxQuadsPerBatch = 65532;
 
-    public Batcher(GraphicsDevice graphicsDevice, int initalSpriteCapacity = DefaultInitialSpriteCapacity)
+    private static int _nextId = 0;
+    private static ReadOnlySpan<uint> IndexPattern => [0, 1, 2, 1, 2, 4];
+
+    internal readonly int Id = Interlocked.Increment(ref _nextId);
+
+    private Texture2D _atlas;
+    private SkylinePacker _packer;
+    private HandleLookup[] _handleLookup = [];
+    private Stack<(Texture2D Texture, Rectangle AtlasBounds, bool NeedsDispose)> _texturesToBuild = [];
+
+
+    private GraphicsDevice _graphics;
+    private DynamicVertexBuffer _vertexBuffer;
+    private DynamicIndexBuffer _indexBuffer;
+    private VertexPositionColorTexture2D[] _verticies;
+    private uint[] _indicies;
+    private int _nextIndex;
+
+    public Batcher(
+        GraphicsDevice graphicsDevice,
+        ContentManager contentManager,
+        int initalSpriteCapacity = DefaultInitialSpriteCapacity,
+        int initalAtlasSize = DefaultAtlasSize)
     {
         _graphics = graphicsDevice;
 
         _verticies = new VertexPositionColorTexture2D[initalSpriteCapacity * VerticiesPerQuad];
-        _indicies = new ushort[initalSpriteCapacity * IndiciesPerQuad];
+        _indicies = new uint[initalSpriteCapacity * IndiciesPerQuad];
+        _handleLookup = new HandleLookup[8];
+
+        _packer = new SkylinePacker(initalAtlasSize, initalAtlasSize, Resize);
+        _atlas = new Texture2D(graphicsDevice, initalAtlasSize, initalAtlasSize);
+
+        _vertexBuffer = new DynamicVertexBuffer(graphicsDevice, default(VertexPositionColorTexture2D).VertexDeclaration, initalSpriteCapacity * VerticiesPerQuad, BufferUsage.WriteOnly);
+        _indexBuffer = new DynamicIndexBuffer(graphicsDevice, IndexElementSize.ThirtyTwoBits, initalSpriteCapacity * IndiciesPerQuad, BufferUsage.WriteOnly);
     }
 
-    private GraphicsDevice _graphics;
-    private VertexPositionColorTexture2D[] _verticies;
-    private ushort[] _indicies;
-    private int _nextIndex;
-
-    public BatcherSprite Draw(Texture2D texture, Vector2 position)
+    public TextureHandle CreateHandle(Texture2D texture)
     {
-        return new BatcherSprite(   
-                default,
-                texture.Width,
-                texture.Height,
-                MemoryMarshal.CreateSpan(ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(_verticies), _nextIndex), VerticiesPerQuad)
-            );
+        var result = texture.GetTextureHandle(this);
+
+        ref HandleLookup coordToSet = ref TextureHelper.GetValueOrResize(ref _handleLookup, result.Value);
+
+        if (coordToSet.IsDefault)
+            InitalizeTextureCoordsFor(texture, ref coordToSet);
+
+        return result;
     }
 
-    public BatcherSprite Draw(Texture2D texture, Rectangle destination)
+    public BatcherSprite Draw(Texture2D texture, Vector2 position) => Draw(CreateHandle(texture), position);
+
+    public BatcherSprite Draw(TextureHandle handle, Vector2 position)
     {
-        return new BatcherSprite(
-                default,
-                texture.Width,
-                texture.Height,
-                _verticies.AsSpan(_nextIndex, VerticiesPerQuad)
-            );
+        if (handle.BatcherId != Id)
+            ThrowInvalidTextureHandle();
+
+        HandleLookup[] coords = _handleLookup;
+        int index = handle.Value;
+
+        if (!((uint)index < (uint)coords.Length))
+            ThrowUnreachableException();
+
+        ref HandleLookup slot = ref coords[index];
+
+        var verts = EnsureCapacity();
+
+        return new BatcherSprite(position, slot.Bounds.Width, slot.Bounds.Height, verts)
+            .SetTextcoords(slot);
+    }
+
+    private Span<VertexPositionColorTexture2D> EnsureCapacity()
+    {
+        if(_nextIndex + 4 > )
+        {
+
+        }
+        
+        return [];
     }
 
     public void Submit(BlendState? blendState = null, SamplerState? samplerState = null, DepthStencilState? depthStencilState = null, RasterizerState? rasterizerState = null)
@@ -57,16 +117,62 @@ public class Batcher
         _graphics.VertexSamplerStates[0] = samplerState ?? SamplerState.LinearClamp;
         _graphics.DepthStencilState = depthStencilState ?? DepthStencilState.Default;
         _graphics.RasterizerState = rasterizerState ?? RasterizerState.CullCounterClockwise;
-        
-        
+
+
+        _graphics.SetVertexBuffer();
 
         int chunkEnd = Math.Min(MaxQuadsPerBatch, _nextIndex);
         for (int chunkStart = 0; chunkEnd < _nextIndex; chunkStart += MaxQuadsPerBatch, chunkEnd = Math.Min(MaxQuadsPerBatch, _nextIndex))
         {
-            _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, chunkStart, 0, 10);
+            _graphics.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, chunkStart, 0, 10);
         }
     }
     
+    private void InitalizeTextureCoordsFor(Texture2D texture2D, ref HandleLookup coords)
+    {
+        Point position = _packer.Pack(texture2D.Width, texture2D.Height);
+
+        Rectangle atlasBounds = new(position, texture2D.Bounds.Size);
+
+        _texturesToBuild.Push((texture2D, atlasBounds, false));
+
+        coords.Bounds = atlasBounds;
+
+        SetTextCoords(ref coords, Vector2.One / _atlas.Bounds.Size.ToVector2());
+    }
+
+    private Point Resize(Point value)
+    {
+        Point newSize = new(value.X * 2, value.Y * 2);
+
+        _texturesToBuild.Push((_atlas, new Rectangle(0, 0, value.X, value.Y), true));
+
+        _atlas = new Texture2D(_graphics, newSize.X, newSize.Y);
+
+        var recep = Vector2.One / newSize.ToVector2();
+        foreach (ref var coord in _handleLookup.AsSpan())
+        {
+            SetTextCoords(ref coord, recep);
+        }
+
+        return newSize;
+    }
+
+    private static void SetTextCoords(ref HandleLookup coords, Vector2 atlasSizeReciprical)
+    {
+        Vector2 position = coords.Bounds.Location.ToVector2();
+        Vector2 brCorner = position + coords.Bounds.Size.ToVector2();
+
+        position *= atlasSizeReciprical;
+        brCorner *= atlasSizeReciprical;
+
+        coords.TL = position;
+        coords.BR = brCorner;
+
+        coords.TR = new Vector2(brCorner.X, position.Y);
+        coords.BL = new Vector2(position.X, brCorner.Y);
+    }
+
     public ref struct BatcherSprite
     {
         private ref VertexPositionColorTexture2D _start;
@@ -93,6 +199,15 @@ public class Batcher
         private ref VertexPositionColorTexture2D VTR => ref Unsafe.Add(ref _start, 1);
         private ref VertexPositionColorTexture2D VBL => ref Unsafe.Add(ref _start, 2);
         private ref VertexPositionColorTexture2D VBR => ref Unsafe.Add(ref _start, 3);
+
+        internal BatcherSprite SetTextcoords(HandleLookup textCoord)
+        {
+            VTL.TextureCoordinate = textCoord.TL;
+            VTR.TextureCoordinate = textCoord.TR;
+            VBL.TextureCoordinate = textCoord.BL;
+            VBR.TextureCoordinate = textCoord.BR;
+            return this;
+        }
 
         public BatcherSprite Rotate(float radians)
         {
@@ -265,5 +380,15 @@ public class Batcher
             VBR.Color = color;
             return this;
         }
+    }
+
+    private static void ThrowInvalidTextureHandle()
+    {
+        throw new ArgumentException("Texture handle invalid.");
+    }
+
+    private static void ThrowUnreachableException()
+    {
+        throw new UnreachableException();
     }
 }

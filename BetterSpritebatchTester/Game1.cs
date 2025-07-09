@@ -21,8 +21,6 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
-        // TODO: Add your initialization logic here
-
         base.Initialize();
     }
 
@@ -30,7 +28,7 @@ public class Game1 : Game
 
     protected override void LoadContent()
     {
-        _batcher = new Batcher(GraphicsDevice);
+        _batcher = new Batcher(GraphicsDevice, Content);
         _colors = typeof(Color).GetProperties(BindingFlags.Public | BindingFlags.Static)
             .Select(x => (Color)x.GetValue(null))
             .ToArray();
@@ -58,7 +56,8 @@ public class Game1 : Game
         for(int i = 0; i < 100; i++)
         {
             _batcher.Draw(_square, new Vector2(Random.Shared.Next(0, 100), Random.Shared.Next(0, 100)))
-                .Scale(2);
+                .Scale(2)
+                .Tint(_colors[Random.Shared.Next(_colors.Length)]);
         }
 
         _batcher.Submit();
