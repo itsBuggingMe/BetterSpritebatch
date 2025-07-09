@@ -14,17 +14,6 @@ namespace BetterSpritebatch;
 
 public class Batcher
 {
-    internal struct HandleLookup(Rectangle bounds, Vector2 tL, Vector2 tR, Vector2 bL, Vector2 bR)
-    {
-        public Rectangle Bounds = bounds;
-        public Vector2 TL = tL;
-        public Vector2 TR = tR;
-        public Vector2 BL = bL;
-        public Vector2 BR = bR;
-        // All textures supported have width, so TR.X must be non zero for it to not be default.
-        public bool IsDefault => TR.X == default;
-    }
-
     internal const int DefaultInitialSpriteCapacity = 42;
     internal const int DefaultAtlasSize = 512;
     internal const int VerticiesPerQuad = 4;
@@ -32,22 +21,24 @@ public class Batcher
     internal const int MaxQuadsPerBatch = 65532;
 
     private static int _nextId = 0;
-    private static ReadOnlySpan<uint> IndexPattern => [0, 1, 2, 1, 2, 4];
 
     internal readonly int Id = Interlocked.Increment(ref _nextId);
 
-    private Texture2D _atlas;
+    private RenderTarget2D _atlas;
     private SkylinePacker _packer;
     private HandleLookup[] _handleLookup = [];
     private Stack<(Texture2D Texture, Rectangle AtlasBounds, bool NeedsDispose)> _texturesToBuild = [];
-
+    private QuadRenderer _quadRenderer;
 
     private GraphicsDevice _graphics;
+
+    private bool _verticiesIndiciesDirty = false;
     private DynamicVertexBuffer _vertexBuffer;
-    private DynamicIndexBuffer _indexBuffer;
+    private IndexBuffer _indexBuffer;
     private VertexPositionColorTexture2D[] _verticies;
+    private Effect _spriteBatcher;
     private uint[] _indicies;
-    private int _nextIndex;
+    private int _nextVertexIndex;
 
     public Batcher(
         GraphicsDevice graphicsDevice,
@@ -55,17 +46,25 @@ public class Batcher
         int initalSpriteCapacity = DefaultInitialSpriteCapacity,
         int initalAtlasSize = DefaultAtlasSize)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initalAtlasSize);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(initalSpriteCapacity);
+
         _graphics = graphicsDevice;
 
         _verticies = new VertexPositionColorTexture2D[initalSpriteCapacity * VerticiesPerQuad];
         _indicies = new uint[initalSpriteCapacity * IndiciesPerQuad];
+        WriteIndicies(_indicies, 0, initalSpriteCapacity);
         _handleLookup = new HandleLookup[8];
 
         _packer = new SkylinePacker(initalAtlasSize, initalAtlasSize, Resize);
-        _atlas = new Texture2D(graphicsDevice, initalAtlasSize, initalAtlasSize);
+        _atlas = new RenderTarget2D(graphicsDevice, initalAtlasSize, initalAtlasSize);
 
         _vertexBuffer = new DynamicVertexBuffer(graphicsDevice, default(VertexPositionColorTexture2D).VertexDeclaration, initalSpriteCapacity * VerticiesPerQuad, BufferUsage.WriteOnly);
-        _indexBuffer = new DynamicIndexBuffer(graphicsDevice, IndexElementSize.ThirtyTwoBits, initalSpriteCapacity * IndiciesPerQuad, BufferUsage.WriteOnly);
+        _indexBuffer = new IndexBuffer(graphicsDevice, IndexElementSize.ThirtyTwoBits, initalSpriteCapacity * IndiciesPerQuad, BufferUsage.WriteOnly);
+
+        _quadRenderer = new QuadRenderer(contentManager, graphicsDevice);
+
+        _spriteBatcher = contentManager.Load<Effect>("sprite_batcher");
     }
 
     public TextureHandle CreateHandle(Texture2D texture)
@@ -97,37 +96,110 @@ public class Batcher
 
         var verts = EnsureCapacity();
 
-        return new BatcherSprite(position, slot.Bounds.Width, slot.Bounds.Height, verts)
-            .SetTextcoords(slot);
+        _nextVertexIndex += VerticiesPerQuad;
+
+        return new BatcherSprite(position, default, slot.Bounds.Width, slot.Bounds.Height, verts)
+            .Initalize(slot);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Span<VertexPositionColorTexture2D> EnsureCapacity()
     {
-        if(_nextIndex + 4 > )
-        {
+        int nextIndex = _nextVertexIndex;
+        var verticies = _verticies;
 
-        }
-        
-        return [];
+        if (nextIndex + VerticiesPerQuad > verticies.Length)
+            return Double();
+
+        ref var firstVert = ref MemoryMarshal.GetArrayDataReference(verticies);
+        return MemoryMarshal.CreateSpan(ref Unsafe.Add(ref firstVert, nextIndex), VerticiesPerQuad);
+    }
+
+    private Span<VertexPositionColorTexture2D> Double()
+    {
+        _verticiesIndiciesDirty = true;
+
+        int oldLength = _verticies.Length;
+        int currentQuadCount = _verticies.Length / VerticiesPerQuad;
+
+        Array.Resize(ref _verticies, currentQuadCount * VerticiesPerQuad * 2);
+        Array.Resize(ref _indicies, currentQuadCount * IndiciesPerQuad * 2);
+
+        WriteIndicies(_indicies, currentQuadCount, currentQuadCount);
+
+        return _verticies.AsSpan(oldLength - VerticiesPerQuad, VerticiesPerQuad);
     }
 
     public void Submit(BlendState? blendState = null, SamplerState? samplerState = null, DepthStencilState? depthStencilState = null, RasterizerState? rasterizerState = null)
     {
-        _graphics.BlendState = blendState ?? BlendState.AlphaBlend;
-        _graphics.VertexSamplerStates[0] = samplerState ?? SamplerState.LinearClamp;
-        _graphics.DepthStencilState = depthStencilState ?? DepthStencilState.Default;
-        _graphics.RasterizerState = rasterizerState ?? RasterizerState.CullCounterClockwise;
+        BuildTextureAtlas();
 
-
-        _graphics.SetVertexBuffer();
-
-        int chunkEnd = Math.Min(MaxQuadsPerBatch, _nextIndex);
-        for (int chunkStart = 0; chunkEnd < _nextIndex; chunkStart += MaxQuadsPerBatch, chunkEnd = Math.Min(MaxQuadsPerBatch, _nextIndex))
+        if (_verticiesIndiciesDirty)
         {
-            _graphics.DrawUserIndexedPrimitives(PrimitiveType.TriangleList, chunkStart, 0, 10);
+            _indexBuffer = new IndexBuffer(_graphics, IndexElementSize.ThirtyTwoBits, _indicies.Length, BufferUsage.WriteOnly);
+            _indexBuffer.SetData(_indicies);
+            _vertexBuffer = new DynamicVertexBuffer(_graphics, default(VertexPositionColorTexture2D).VertexDeclaration, _verticies.Length, BufferUsage.WriteOnly);
+            _verticiesIndiciesDirty = false;
+        }
+
+        // buffers
+        _vertexBuffer.SetData(_verticies);
+        _graphics.SetVertexBuffer(_vertexBuffer);
+        _graphics.Indices = _indexBuffer;
+
+        // states
+        _graphics.BlendState = blendState ?? BlendState.AlphaBlend;
+        _graphics.SamplerStates[0] = samplerState ?? SamplerState.LinearClamp;
+        _graphics.DepthStencilState = depthStencilState ?? DepthStencilState.None;
+        _graphics.RasterizerState = RasterizerState.CullNone;
+
+        // apply
+        _spriteBatcher.Parameters["view_proj"]?.SetValue(Matrix.Identity);
+        _spriteBatcher.CurrentTechnique.Passes[0].Apply();
+        _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, _nextVertexIndex / VerticiesPerQuad);
+
+        //reset
+        _nextVertexIndex = 0;
+    }
+
+    private void BuildTextureAtlas()
+    {
+        if(_texturesToBuild.Count == 0)
+            return;
+        var bindings = _graphics.GetRenderTargets();
+
+        _graphics.SetRenderTarget(_atlas);
+        while (_texturesToBuild.TryPop(out var res))
+        {
+            (Texture2D texture, Rectangle atlasBounds, bool dispose) = res;
+
+            _quadRenderer.Draw(texture, atlasBounds.Location.ToVector2());
+
+            if(dispose)
+                texture.Dispose();
+        }
+
+        _graphics.SetRenderTargets(bindings);
+    
+    }
+
+    private static void WriteIndicies(uint[] indicies, int quadStart, int quadCount)
+    {
+        uint baseIndex = (uint)(quadStart * VerticiesPerQuad);
+        uint start = (uint)quadStart * IndiciesPerQuad;
+        uint endIndexIndex = start + (uint)quadCount * IndiciesPerQuad;
+        for (uint i = start; i < endIndexIndex; i += IndiciesPerQuad)
+        {
+            indicies[i + 0] = baseIndex + 0u;
+            indicies[i + 1] = baseIndex + 1u;
+            indicies[i + 2] = baseIndex + 2u;
+            indicies[i + 3] = baseIndex + 1u;
+            indicies[i + 4] = baseIndex + 3u;
+            indicies[i + 5] = baseIndex + 2u;
+            baseIndex += VerticiesPerQuad;
         }
     }
-    
+
     private void InitalizeTextureCoordsFor(Texture2D texture2D, ref HandleLookup coords)
     {
         Point position = _packer.Pack(texture2D.Width, texture2D.Height);
@@ -147,7 +219,7 @@ public class Batcher
 
         _texturesToBuild.Push((_atlas, new Rectangle(0, 0, value.X, value.Y), true));
 
-        _atlas = new Texture2D(_graphics, newSize.X, newSize.Y);
+        _atlas = new RenderTarget2D(_graphics, newSize.X, newSize.Y);
 
         var recep = Vector2.One / newSize.ToVector2();
         foreach (ref var coord in _handleLookup.AsSpan())
@@ -181,14 +253,30 @@ public class Batcher
         private float _textureWidth;
         private float _textureHeight;
 
-        internal BatcherSprite(Vector2 origin, int tWidth, int tHeight, Span<VertexPositionColorTexture2D> verticies)
+        internal BatcherSprite(Vector2 position, Vector2 origin, int tWidth, int tHeight, Span<VertexPositionColorTexture2D> verticies)
         {
             Debug.Assert(verticies.Length == 4);
+            _start = ref MemoryMarshal.GetReference(verticies);
+
             _textureWidth = tWidth;
             _textureHeight = tHeight;
             _origin = Unsafe.BitCast<Vector2, STVector>(origin);
-            _start = ref MemoryMarshal.GetReference(verticies);
+
+            STVector pos = Unsafe.BitCast<Vector2, STVector>(position);
+
+            TL = pos;
+            TR = pos + new STVector(tWidth, 0);
+            BL = pos + new STVector(0, tHeight);
+            BR = pos + new STVector(tWidth, tHeight);
+
+
+            TL = new STVector(R(), R());
+            TR = new STVector(R(), R());
+            BL = new STVector(R(), R());
+            BR = new STVector(R(), R());
         }
+
+        static float R() => Random.Shared.NextSingle() * 1000;
 
         private ref STVector TL => ref Unsafe.As<Vector2, STVector>(ref _start.Position);
         private ref STVector TR => ref Unsafe.As<Vector2, STVector>(ref Unsafe.Add(ref _start, 1).Position);
@@ -200,7 +288,7 @@ public class Batcher
         private ref VertexPositionColorTexture2D VBL => ref Unsafe.Add(ref _start, 2);
         private ref VertexPositionColorTexture2D VBR => ref Unsafe.Add(ref _start, 3);
 
-        internal BatcherSprite SetTextcoords(HandleLookup textCoord)
+        internal BatcherSprite Initalize(HandleLookup textCoord)
         {
             VTL.TextureCoordinate = textCoord.TL;
             VTR.TextureCoordinate = textCoord.TR;

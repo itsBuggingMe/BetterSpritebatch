@@ -33,8 +33,8 @@ public class Game1 : Game
             .Select(x => (Color)x.GetValue(null))
             .ToArray();
 
-        _square = new Texture2D(GraphicsDevice, 1, 1);
-        _square.SetData([Color.White]);
+        _square = new Texture2D(GraphicsDevice, 200, 200);
+        _square.SetData(Enumerable.Repeat(Color.White, 200 * 200).ToArray());
     }
 
     protected override void Update(GameTime gameTime)
@@ -53,10 +53,12 @@ public class Game1 : Game
     {
         GraphicsDevice.Clear(Color.CornflowerBlue);
         
-        for(int i = 0; i < 100; i++)
+        new QuadRenderer(Content, GraphicsDevice).Draw(_square, default);
+
+        return;
+        for(int i = 0; i < 10000; i++)
         {
             _batcher.Draw(_square, new Vector2(Random.Shared.Next(0, 100), Random.Shared.Next(0, 100)))
-                .Scale(2)
                 .Tint(_colors[Random.Shared.Next(_colors.Length)]);
         }
 
