@@ -7,7 +7,7 @@
     #define PS_SHADERMODEL ps_5_0
 #endif
 
-float4x4 view_proj;
+float4x4 Transform;
 
 texture Atlas;
 
@@ -34,8 +34,8 @@ struct VertexShaderOutput
 VertexShaderOutput MainVS(in VertexShaderInput input)
 {
     VertexShaderOutput output = (VertexShaderOutput)0;
-    float4 normPos = float4(input.Position, 0, 0);
-    output.Position = normPos;
+    float4 normPos = float4(input.Position.x, input.Position.y, 0, 1);
+    output.Position = mul(normPos, Transform);
     output.Color = input.Color;
     output.TextureCoordinate = input.TextureCoordinate;
     return output;
@@ -43,7 +43,7 @@ VertexShaderOutput MainVS(in VertexShaderInput input)
 
 float4 MainPS(VertexShaderOutput input) : COLOR
 {
-    return float4(1, 1, 1, 1);
+    return tex2D(Sampler, input.TextureCoordinate) * input.Color;
 }
 
 technique BasicColorDrawing

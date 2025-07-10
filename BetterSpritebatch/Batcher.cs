@@ -8,6 +8,7 @@ using System.Runtime.Intrinsics;
 using STVector = System.Numerics.Vector2;
 using STMatrix = System.Numerics.Matrix4x4;
 using Microsoft.Xna.Framework.Content;
+using Microsoft.Xna.Framework.Input;
 
 
 namespace BetterSpritebatch;
@@ -130,9 +131,12 @@ public class Batcher
         return _verticies.AsSpan(oldLength - VerticiesPerQuad, VerticiesPerQuad);
     }
 
-    public void Submit(BlendState? blendState = null, SamplerState? samplerState = null, DepthStencilState? depthStencilState = null, RasterizerState? rasterizerState = null)
+    public void Submit(Matrix? view = null, Matrix? proj = null, BlendState? blendState = null, SamplerState? samplerState = null, DepthStencilState? depthStencilState = null, RasterizerState? rasterizerState = null)
     {
         BuildTextureAtlas();
+
+        if (_nextVertexIndex == 0)
+            return;
 
         if (_verticiesIndiciesDirty)
         {
@@ -154,12 +158,24 @@ public class Batcher
         _graphics.RasterizerState = RasterizerState.CullNone;
 
         // apply
-        _spriteBatcher.Parameters["view_proj"]?.SetValue(Matrix.Identity);
+        Viewport viewport = _graphics.Viewport;
+        _spriteBatcher.Parameters["Atlas"].SetValue(_atlas);
+        _spriteBatcher.Parameters["Transform"]?.SetValue(
+            view ?? Matrix.Identity * 
+            proj ?? Matrix.CreateOrthographicOffCenter(viewport.X, viewport.Width, viewport.Height, viewport.Y, 0, 1)
+            );
+
         _spriteBatcher.CurrentTechnique.Passes[0].Apply();
-        _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, _nextVertexIndex / VerticiesPerQuad);
+        _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 2 * _nextVertexIndex / VerticiesPerQuad);
 
         //reset
         _nextVertexIndex = 0;
+
+        if(Mouse.GetState().MiddleButton == ButtonState.Pressed)
+        {
+            _graphics.SetRenderTarget(null);
+            _quadRenderer.Draw(_atlas, default);
+        }
     }
 
     private void BuildTextureAtlas()
@@ -268,15 +284,7 @@ public class Batcher
             TR = pos + new STVector(tWidth, 0);
             BL = pos + new STVector(0, tHeight);
             BR = pos + new STVector(tWidth, tHeight);
-
-
-            TL = new STVector(R(), R());
-            TR = new STVector(R(), R());
-            BL = new STVector(R(), R());
-            BR = new STVector(R(), R());
         }
-
-        static float R() => Random.Shared.NextSingle() * 1000;
 
         private ref STVector TL => ref Unsafe.As<Vector2, STVector>(ref _start.Position);
         private ref STVector TR => ref Unsafe.As<Vector2, STVector>(ref Unsafe.Add(ref _start, 1).Position);

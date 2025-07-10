@@ -1,6 +1,7 @@
 ﻿using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
 
 namespace BetterSpritebatch;
 
@@ -15,13 +16,18 @@ public class QuadRenderer(ContentManager content, GraphicsDevice device)
     {
         device.RasterizerState = RasterizerState.CullNone;
 
-        Vector2 size = texture.Bounds.Size.ToVector2() * 100;
+        Viewport viewport = device.Viewport;
+        Matrix transform = Matrix.CreateOrthographicOffCenter(viewport.X, viewport.Width, viewport.Height, viewport.Y, 0, 1);
+
+        Vector2 size = texture.Bounds.Size.ToVector2();
+
         _vertBuffer[0] = new(where, Color.White, new(0, 0));
         _vertBuffer[1] = new(where + size * Vector2.UnitX, Color.White, new(1, 0));
         _vertBuffer[2] = new(where + size * Vector2.UnitY, Color.White, new(0, 1));
         _vertBuffer[3] = new(where + size, Color.White, new(1, 1));
 
         _drawEffect.Parameters["Atlas"]?.SetValue(texture);
+        _drawEffect.Parameters["Transform"]?.SetValue(transform);
 
         _drawEffect.CurrentTechnique.Passes[0].Apply();
 

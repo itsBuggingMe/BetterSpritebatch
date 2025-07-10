@@ -3,6 +3,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using System;
+using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Reflection;
 
@@ -32,9 +34,6 @@ public class Game1 : Game
         _colors = typeof(Color).GetProperties(BindingFlags.Public | BindingFlags.Static)
             .Select(x => (Color)x.GetValue(null))
             .ToArray();
-
-        _square = new Texture2D(GraphicsDevice, 200, 200);
-        _square.SetData(Enumerable.Repeat(Color.White, 200 * 200).ToArray());
     }
 
     protected override void Update(GameTime gameTime)
@@ -42,24 +41,32 @@ public class Game1 : Game
         if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
             Exit();
 
-        // TODO: Add your update logic here
+        if(Random.Shared.Next() % 30 == 0)
+        {
+            Point size = new Point(Random.Shared.Next(10, 100), Random.Shared.Next(10, 100));
+            Texture2D texture = new Texture2D(GraphicsDevice, size.X, size.Y);
+            Color[] data = new Color[size.X * size.Y];
+            data.AsSpan().Fill(_colors[Random.Shared.Next(_colors.Length)]);
+            texture.SetData(data);
+            Vector2 position = new Vector2(Random.Shared.Next(0, GraphicsDevice.Viewport.Width - size.X), Random.Shared.Next(0, GraphicsDevice.Viewport.Height - size.Y));
+
+            _textures.Add((texture, position));
+        }
 
         base.Update(gameTime);
     }
 
     private Color[] _colors;
+    private List<(Texture2D, Vector2)> _textures = [];
 
     protected override void Draw(GameTime gameTime)
     {
         GraphicsDevice.Clear(Color.CornflowerBlue);
         
-        new QuadRenderer(Content, GraphicsDevice).Draw(_square, default);
-
-        return;
-        for(int i = 0; i < 10000; i++)
+        foreach(var (t, p) in _textures)
         {
-            _batcher.Draw(_square, new Vector2(Random.Shared.Next(0, 100), Random.Shared.Next(0, 100)))
-                .Tint(_colors[Random.Shared.Next(_colors.Length)]);
+            _batcher.Draw(t, p)
+                .Tint(Color.White);
         }
 
         _batcher.Submit();
