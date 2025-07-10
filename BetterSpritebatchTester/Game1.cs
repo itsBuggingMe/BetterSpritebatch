@@ -13,7 +13,7 @@ public class Game1 : Game
 {
     private GraphicsDeviceManager _graphics;
     private Batcher _batcher;
-
+    private SpriteBatch _sb;
     public Game1()
     {
         _graphics = new GraphicsDeviceManager(this);
@@ -23,6 +23,7 @@ public class Game1 : Game
 
     protected override void Initialize()
     {
+        _sb = new(GraphicsDevice);
         base.Initialize();
     }
 
@@ -30,6 +31,9 @@ public class Game1 : Game
 
     protected override void LoadContent()
     {
+        _square = new Texture2D(GraphicsDevice, 1, 1);
+        _square.SetData([Color.White]);
+
         _batcher = new Batcher(GraphicsDevice, Content);
         _colors = typeof(Color).GetProperties(BindingFlags.Public | BindingFlags.Static)
             .Select(x => (Color)x.GetValue(null))
@@ -57,7 +61,7 @@ public class Game1 : Game
     }
 
     private Color[] _colors;
-    private List<(Texture2D, Vector2)> _textures = [];
+    private readonly List<(Texture2D, Vector2)> _textures = [];
 
     protected override void Draw(GameTime gameTime)
     {
@@ -70,6 +74,13 @@ public class Game1 : Game
         }
 
         _batcher.Submit();
+
+        _sb.Begin();
+        _batcher.DebugDraw((a, b) =>
+        {
+            _sb.Draw(_square, new Rectangle(a, b), Color.Red);
+        });
+        _sb.End();
 
         base.Draw(gameTime);
     }

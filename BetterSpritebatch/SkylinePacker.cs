@@ -14,6 +14,16 @@ internal class SkylinePacker
     private readonly Func<Point, Point> _resizeStrat;
     private readonly List<SkylineNode> _skyline = [];
 
+    public void Draw(Action<Point, Point> drawLine)
+    {
+        int left = 0;
+        foreach (var skylineNode in _skyline)
+        {
+            drawLine(new(left, skylineNode.Down), new(skylineNode.Width, 1));
+            left += skylineNode.Width;
+        }
+    }
+
     public SkylinePacker(int maxWidth, int maxHeight, Func<Point, Point> resizingStrategy)
     {
         _width = maxWidth;
@@ -40,7 +50,7 @@ internal class SkylinePacker
         {
             SkylineNode node = skyline[i];
 
-            if (node.Width >= width && node.Down < bestScore)
+            if (CanInsertRectangle(width, skyline[i..]) && node.Down < bestScore)
             {
                 bestScore = node.Down;
                 bestScoreIndex = i;
@@ -50,25 +60,26 @@ internal class SkylinePacker
 
         ref SkylineNode winner = ref skyline[bestScoreIndex];
 
-        if(winner.Width == width)
+        int newHeight = bestScorePosition.Y + height;
+        if (newHeight > _height)
+        {
+            int oldWidth = _width;
+            var newSize = _resizeStrat.Invoke(new Point(_width, _height));
+            _width = newSize.X;
+            _height = newSize.Y;
+            _skyline.Add(new SkylineNode(0, _width - oldWidth));
+            return Pack(width, height);
+        }
+
+        if (winner.Width == width)
         {// perfect fit!
             winner.Down = bestScorePosition.Y;
 
             TryMergeNodes(bestScoreIndex + 1);
             TryMergeNodes(bestScoreIndex);
         }
-        else
-        {
-            int newHeight = bestScorePosition.Y + height;
-            if(newHeight > _height)
-            {
-                int oldWidth = _width;
-                var newSize = _resizeStrat.Invoke(new Point(_width, _height));
-                _width = newSize.X;
-                _height = newSize.Y;
-                _skyline.Add(new SkylineNode(0, _width - oldWidth));
-                return Pack(width, height);
-            }
+        else if (winner.Width > width)
+        {//extra space
 
             // old winner node on the right
             winner = new SkylineNode(winner.Down, winner.Width - width);
@@ -78,6 +89,30 @@ internal class SkylinePacker
             // ref winner now outdated
 
             TryMergeNodes(bestScoreIndex);
+        }
+        else
+        {// wasted space scenario
+            Span<SkylineNode> potentialNodes = skyline[bestScoreIndex..];
+            float cumulativeWidth = 0;
+            for (int i = 0; i < potentialNodes.Length; i++)
+            {
+                SkylineNode current = potentialNodes[i];
+
+                cumulativeWidth += current.Width;
+
+                if (cumulativeWidth >= width)
+                {
+                    winner = new SkylineNode(winner.Down, width);
+                    
+                    // spare one node
+                    _skyline.RemoveRange(bestScoreIndex + 1, i - 1);
+
+                    _skyline[bestScoreIndex + 1] = new SkylineNode(current.Down, current.Width - width);
+
+
+                    break;
+                }
+            }
         }
 
         return bestScorePosition;
@@ -103,6 +138,29 @@ internal class SkylinePacker
             _skyline.RemoveAt(index);
             // span outdated
             return true;
+        }
+
+        return false;
+    }
+
+    private static bool CanInsertRectangle(float rectangleWidth, Span<SkylineNode> nodes)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(nodes.Length);
+
+        float widthRemaining = rectangleWidth;
+        float down = nodes[0].Down;
+
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            ref SkylineNode currentNode = ref nodes[i];
+
+            if (currentNode.Down > down)
+                return false;
+
+            widthRemaining -= currentNode.Width;
+
+            if (widthRemaining <= 0)
+                return true;
         }
 
         return false;

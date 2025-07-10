@@ -58,7 +58,7 @@ public class Batcher
         _handleLookup = new HandleLookup[8];
 
         _packer = new SkylinePacker(initalAtlasSize, initalAtlasSize, Resize);
-        _atlas = new RenderTarget2D(graphicsDevice, initalAtlasSize, initalAtlasSize);
+        _atlas = new RenderTarget2D(graphicsDevice, initalAtlasSize, initalAtlasSize, false, SurfaceFormat.Color, DepthFormat.None, 0, RenderTargetUsage.PreserveContents);
 
         _vertexBuffer = new DynamicVertexBuffer(graphicsDevice, default(VertexPositionColorTexture2D).VertexDeclaration, initalSpriteCapacity * VerticiesPerQuad, BufferUsage.WriteOnly);
         _indexBuffer = new IndexBuffer(graphicsDevice, IndexElementSize.ThirtyTwoBits, initalSpriteCapacity * IndiciesPerQuad, BufferUsage.WriteOnly);
@@ -178,10 +178,13 @@ public class Batcher
         }
     }
 
+    public void DebugDraw(Action<Point, Point> p) => _packer.Draw(p);
+
     private void BuildTextureAtlas()
     {
-        if(_texturesToBuild.Count == 0)
-            return;
+        //if(_texturesToBuild.Count == 0)
+        //    return;
+
         var bindings = _graphics.GetRenderTargets();
 
         _graphics.SetRenderTarget(_atlas);
@@ -235,7 +238,7 @@ public class Batcher
 
         _texturesToBuild.Push((_atlas, new Rectangle(0, 0, value.X, value.Y), true));
 
-        _atlas = new RenderTarget2D(_graphics, newSize.X, newSize.Y);
+        _atlas = new RenderTarget2D(_graphics, newSize.X, newSize.Y, false, SurfaceFormat.Color, DepthFormat.None, 0, RenderTargetUsage.PreserveContents);
 
         var recep = Vector2.One / newSize.ToVector2();
         foreach (ref var coord in _handleLookup.AsSpan())
