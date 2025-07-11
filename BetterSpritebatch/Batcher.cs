@@ -9,6 +9,8 @@ using STVector = System.Numerics.Vector2;
 using STMatrix = System.Numerics.Matrix4x4;
 using Microsoft.Xna.Framework.Content;
 using Microsoft.Xna.Framework.Input;
+using System.Data;
+using System.Buffers;
 
 
 namespace BetterSpritebatch;
@@ -25,11 +27,10 @@ public class Batcher
 
     internal readonly int Id = Interlocked.Increment(ref _nextId);
 
-    private RenderTarget2D _atlas;
+    public Texture2D _atlas;
     private SkylinePacker _packer;
     private HandleLookup[] _handleLookup = [];
     private Stack<(Texture2D Texture, Rectangle AtlasBounds, bool NeedsDispose)> _texturesToBuild = [];
-    private QuadRenderer _quadRenderer;
 
     private GraphicsDevice _graphics;
 
@@ -58,14 +59,14 @@ public class Batcher
         _handleLookup = new HandleLookup[8];
 
         _packer = new SkylinePacker(initalAtlasSize, initalAtlasSize, Resize);
-        _atlas = new RenderTarget2D(graphicsDevice, initalAtlasSize, initalAtlasSize, false, SurfaceFormat.Color, DepthFormat.None, 0, RenderTargetUsage.PreserveContents);
+        _atlas = new Texture2D(graphicsDevice, initalAtlasSize, initalAtlasSize);
 
-        _vertexBuffer = new DynamicVertexBuffer(graphicsDevice, default(VertexPositionColorTexture2D).VertexDeclaration, initalSpriteCapacity * VerticiesPerQuad, BufferUsage.WriteOnly);
-        _indexBuffer = new IndexBuffer(graphicsDevice, IndexElementSize.ThirtyTwoBits, initalSpriteCapacity * IndiciesPerQuad, BufferUsage.WriteOnly);
-
-        _quadRenderer = new QuadRenderer(contentManager, graphicsDevice);
+        _vertexBuffer = null!;
+        _indexBuffer = null!;
 
         _spriteBatcher = contentManager.Load<Effect>("sprite_batcher");
+
+        _verticiesIndiciesDirty = true;
     }
 
     public TextureHandle CreateHandle(Texture2D texture)
@@ -153,53 +154,46 @@ public class Batcher
 
         // states
         _graphics.BlendState = blendState ?? BlendState.AlphaBlend;
-        _graphics.SamplerStates[0] = samplerState ?? SamplerState.LinearClamp;
+        _graphics.SamplerStates[0] = samplerState ?? SamplerState.PointClamp;
         _graphics.DepthStencilState = depthStencilState ?? DepthStencilState.None;
         _graphics.RasterizerState = RasterizerState.CullNone;
 
         // apply
         Viewport viewport = _graphics.Viewport;
+        _graphics.Textures[0] = null;
         _spriteBatcher.Parameters["Atlas"].SetValue(_atlas);
-        _spriteBatcher.Parameters["Transform"]?.SetValue(
-            view ?? Matrix.Identity * 
-            proj ?? Matrix.CreateOrthographicOffCenter(viewport.X, viewport.Width, viewport.Height, viewport.Y, 0, 1)
+        _spriteBatcher.Parameters["Transform"].SetValue(
+            (view ?? Matrix.Identity) * 
+            (proj ?? Matrix.CreateOrthographicOffCenter(viewport.X, viewport.Width, viewport.Height, viewport.Y, 0, 1))
             );
 
-        _spriteBatcher.CurrentTechnique.Passes[0].Apply();
-        _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 2 * _nextVertexIndex / VerticiesPerQuad);
+        foreach (EffectPass pass in _spriteBatcher.CurrentTechnique.Passes)
+        {
+            pass.Apply();
+            _graphics.DrawIndexedPrimitives(PrimitiveType.TriangleList, 0, 0, 2 * _nextVertexIndex / VerticiesPerQuad);
+        }
 
         //reset
         _nextVertexIndex = 0;
-
-        if(Mouse.GetState().MiddleButton == ButtonState.Pressed)
-        {
-            _graphics.SetRenderTarget(null);
-            _quadRenderer.Draw(_atlas, default);
-        }
     }
-
-    public void DebugDraw(Action<Point, Point> p) => _packer.Draw(p);
 
     private void BuildTextureAtlas()
     {
-        //if(_texturesToBuild.Count == 0)
-        //    return;
-
-        var bindings = _graphics.GetRenderTargets();
-
-        _graphics.SetRenderTarget(_atlas);
         while (_texturesToBuild.TryPop(out var res))
         {
             (Texture2D texture, Rectangle atlasBounds, bool dispose) = res;
 
-            _quadRenderer.Draw(texture, atlasBounds.Location.ToVector2());
+            int size = texture.Width * texture.Height;
+            Color[] colors = ArrayPool<Color>.Shared.Rent(size);
 
-            if(dispose)
+            texture.GetData(colors, 0, size);
+            _atlas.SetData(0, atlasBounds, colors, 0, size);
+
+            ArrayPool<Color>.Shared.Return(colors);
+
+            if (dispose)
                 texture.Dispose();
         }
-
-        _graphics.SetRenderTargets(bindings);
-    
     }
 
     private static void WriteIndicies(uint[] indicies, int quadStart, int quadCount)
@@ -238,7 +232,7 @@ public class Batcher
 
         _texturesToBuild.Push((_atlas, new Rectangle(0, 0, value.X, value.Y), true));
 
-        _atlas = new RenderTarget2D(_graphics, newSize.X, newSize.Y, false, SurfaceFormat.Color, DepthFormat.None, 0, RenderTargetUsage.PreserveContents);
+        _atlas = new Texture2D(_graphics, newSize.X, newSize.Y);
 
         var recep = Vector2.One / newSize.ToVector2();
         foreach (ref var coord in _handleLookup.AsSpan())
@@ -359,7 +353,7 @@ public class Batcher
             TL = STVector.Transform(TL, Unsafe.BitCast<Matrix, STMatrix>(matrix));
             TR = STVector.Transform(TR, Unsafe.BitCast<Matrix, STMatrix>(matrix));
             BL = STVector.Transform(BL, Unsafe.BitCast<Matrix, STMatrix>(matrix));
-            BR = STVector.Transform(TR, Unsafe.BitCast<Matrix, STMatrix>(matrix));
+            BR = STVector.Transform(BR, Unsafe.BitCast<Matrix, STMatrix>(matrix));
             return this;
         }
 
@@ -403,7 +397,7 @@ public class Batcher
                 TL = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetLower().GetLower());
                 TR = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetLower().GetUpper());
                 BL = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetUpper().GetLower());
-                TR = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetUpper().GetUpper());
+                BR = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetUpper().GetUpper());
             }
             else
             {
@@ -424,7 +418,7 @@ public class Batcher
                 TL = Unsafe.BitCast<Vector64<float>, STVector>(lower.GetLower());
                 TR = Unsafe.BitCast<Vector64<float>, STVector>(lower.GetUpper());
                 BL = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetLower());
-                TR = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetUpper());
+                BR = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetUpper());
             }
 
             return this;
@@ -445,7 +439,7 @@ public class Batcher
                 TL = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetLower().GetLower());
                 TR = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetLower().GetUpper());
                 BL = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetUpper().GetLower());
-                TR = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetUpper().GetUpper());
+                BR = Unsafe.BitCast<Vector64<float>, STVector>(pos.GetUpper().GetUpper());
             }
             else
             {
@@ -465,7 +459,7 @@ public class Batcher
                 TL = Unsafe.BitCast<Vector64<float>, STVector>(lower.GetLower());
                 TR = Unsafe.BitCast<Vector64<float>, STVector>(lower.GetUpper());
                 BL = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetLower());
-                TR = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetUpper());
+                BR = Unsafe.BitCast<Vector64<float>, STVector>(upper.GetUpper());
             }
 
             return this;

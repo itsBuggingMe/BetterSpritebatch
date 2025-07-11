@@ -14,16 +14,6 @@ internal class SkylinePacker
     private readonly Func<Point, Point> _resizeStrat;
     private readonly List<SkylineNode> _skyline = [];
 
-    public void Draw(Action<Point, Point> drawLine)
-    {
-        int left = 0;
-        foreach (var skylineNode in _skyline)
-        {
-            drawLine(new(left, skylineNode.Down), new(skylineNode.Width, 1));
-            left += skylineNode.Width;
-        }
-    }
-
     public SkylinePacker(int maxWidth, int maxHeight, Func<Point, Point> resizingStrategy)
     {
         _width = maxWidth;
@@ -73,7 +63,7 @@ internal class SkylinePacker
 
         if (winner.Width == width)
         {// perfect fit!
-            winner.Down = bestScorePosition.Y;
+            winner.Down = newHeight;
 
             TryMergeNodes(bestScoreIndex + 1);
             TryMergeNodes(bestScoreIndex);
@@ -93,7 +83,7 @@ internal class SkylinePacker
         else
         {// wasted space scenario
             Span<SkylineNode> potentialNodes = skyline[bestScoreIndex..];
-            float cumulativeWidth = 0;
+            int cumulativeWidth = 0;
             for (int i = 0; i < potentialNodes.Length; i++)
             {
                 SkylineNode current = potentialNodes[i];
@@ -102,12 +92,12 @@ internal class SkylinePacker
 
                 if (cumulativeWidth >= width)
                 {
-                    winner = new SkylineNode(winner.Down, width);
+                    winner = new SkylineNode(newHeight, width);
                     
                     // spare one node
                     _skyline.RemoveRange(bestScoreIndex + 1, i - 1);
 
-                    _skyline[bestScoreIndex + 1] = new SkylineNode(current.Down, current.Width - width);
+                    _skyline[bestScoreIndex + 1] = new SkylineNode(current.Down, cumulativeWidth - width);
 
 
                     break;

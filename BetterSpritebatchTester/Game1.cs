@@ -19,6 +19,7 @@ public class Game1 : Game
         _graphics = new GraphicsDeviceManager(this);
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
+        Window.AllowUserResizing = true;
     }
 
     protected override void Initialize()
@@ -28,7 +29,7 @@ public class Game1 : Game
     }
 
     Texture2D _square;
-
+    SpriteEffect _se;
     protected override void LoadContent()
     {
         _square = new Texture2D(GraphicsDevice, 1, 1);
@@ -38,21 +39,27 @@ public class Game1 : Game
         _colors = typeof(Color).GetProperties(BindingFlags.Public | BindingFlags.Static)
             .Select(x => (Color)x.GetValue(null))
             .ToArray();
+
+        _se = new(GraphicsDevice);
     }
+
+    Random r = new();
 
     protected override void Update(GameTime gameTime)
     {
         if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
             Exit();
 
-        if(Random.Shared.Next() % 30 == 0)
+        InputHelper.TickUpdate(true);
+        if(InputHelper.DeltaScroll != 0)
         {
-            Point size = new Point(Random.Shared.Next(10, 100), Random.Shared.Next(10, 100));
+            Point size = new Point(r.Next(10, 100),r.Next(10, 100));
             Texture2D texture = new Texture2D(GraphicsDevice, size.X, size.Y);
+
             Color[] data = new Color[size.X * size.Y];
-            data.AsSpan().Fill(_colors[Random.Shared.Next(_colors.Length)]);
+            data.AsSpan().Fill(_colors[r.Next(_colors.Length)]);
             texture.SetData(data);
-            Vector2 position = new Vector2(Random.Shared.Next(0, GraphicsDevice.Viewport.Width - size.X), Random.Shared.Next(0, GraphicsDevice.Viewport.Height - size.Y));
+            Vector2 position = new Vector2(r.Next(0, GraphicsDevice.Viewport.Width - size.X), r.Next(0, GraphicsDevice.Viewport.Height - size.Y));
 
             _textures.Add((texture, position));
         }
@@ -66,21 +73,26 @@ public class Game1 : Game
     protected override void Draw(GameTime gameTime)
     {
         GraphicsDevice.Clear(Color.CornflowerBlue);
+       
         
-        foreach(var (t, p) in _textures)
+        if(InputHelper.Down(MouseButton.Right))
         {
-            _batcher.Draw(t, p)
-                .Tint(Color.White);
+            //new QuadRenderer(Content, GraphicsDevice).Draw(_batcher._atlas, default);
+            //return;
+            _sb.Begin();
+            _sb.Draw(_batcher._atlas, new Vector2(0, 0), Color.White);
+            _sb.End();
         }
-
-        _batcher.Submit();
-
-        _sb.Begin();
-        _batcher.DebugDraw((a, b) =>
+        else
         {
-            _sb.Draw(_square, new Rectangle(a, b), Color.Red);
-        });
-        _sb.End();
+            foreach (var (t, p) in _textures)
+            {
+                _batcher.Draw(t, p)
+                    .Tint(Color.White);
+            }
+
+            _batcher.Submit();
+        }
 
         base.Draw(gameTime);
     }

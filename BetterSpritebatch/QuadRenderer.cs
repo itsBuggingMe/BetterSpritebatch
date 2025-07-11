@@ -25,7 +25,7 @@ public class QuadRenderer(ContentManager content, GraphicsDevice device)
         _vertBuffer[1] = new(where + size * Vector2.UnitX, Color.White, new(1, 0));
         _vertBuffer[2] = new(where + size * Vector2.UnitY, Color.White, new(0, 1));
         _vertBuffer[3] = new(where + size, Color.White, new(1, 1));
-
+        
         _drawEffect.Parameters["Atlas"]?.SetValue(texture);
         _drawEffect.Parameters["Transform"]?.SetValue(transform);
 
